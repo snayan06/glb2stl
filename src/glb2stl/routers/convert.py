@@ -1,20 +1,37 @@
 from __future__ import annotations
-from fastapi import APIRouter, UploadFile, File, Query
-from fastapi.responses import StreamingResponse, JSONResponse
-from ..schemas import PreflightInfo, ErrorResponse
-from ..services.glb import detect_draco_from_bytes, load_glb_to_mesh, orient_and_scale, quick_repair, DracoDetected
+
+import io
+
+from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
+
 from ..config import settings
 from ..logging_config import get_logger
-import io
+from ..schemas import ErrorResponse, PreflightInfo
+from ..services.glb import (
+    DracoDetected,
+    detect_draco_from_bytes,
+    load_glb_to_mesh,
+    orient_and_scale,
+    quick_repair,
+)
 
 router = APIRouter(prefix="/convert", tags=["convert"])
 log = get_logger(__name__)
 
-@router.post("/preflight", response_model=PreflightInfo, responses={400: {"model": ErrorResponse}})
+
+@router.post(
+    "/preflight",
+    response_model=PreflightInfo,
+    responses={400: {"model": ErrorResponse}},
+)
 async def preflight(file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > settings.MAX_BYTES:
-        return JSONResponse({"error": f"File too large (> {settings.MAX_BYTES} bytes)."}, status_code=400)
+        return JSONResponse(
+            {"error": f"File too large (> {settings.MAX_BYTES} bytes)."},
+            status_code=400,
+        )
 
     has_draco = detect_draco_from_bytes(data)
     if has_draco:
@@ -23,10 +40,10 @@ async def preflight(file: UploadFile = File(...)):
             has_draco=True,
             vertices=0,
             triangles=0,
-            bounds_m_min=[0,0,0],
-            bounds_m_max=[0,0,0],
+            bounds_m_min=[0, 0, 0],
+            bounds_m_max=[0, 0, 0],
             watertight=False,
-            notes=["GLB uses Draco. Provide uncompressed GLB, or use a Draco-capable path."]
+            notes=["GLB uses Draco. Provide uncompressed GLB, or use a Draco-capable path."],
         )
 
     try:
@@ -43,8 +60,9 @@ async def preflight(file: UploadFile = File(...)):
         bounds_m_min=bbox[0].tolist(),
         bounds_m_max=bbox[1].tolist(),
         watertight=bool(mesh.is_watertight),
-        notes=["glTF units: meters; default export converts to mm, Z-up."]
+        notes=["glTF units: meters; default export converts to mm, Z-up."],
     )
+
 
 @router.post("/stl", responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
 async def convert_to_stl(
@@ -52,14 +70,22 @@ async def convert_to_stl(
     z_up: bool = Query(True, description="Rotate Y-up → Z-up"),
     to_mm: bool = Query(True, description="Scale meters → millimeters"),
     repair: bool = Query(True, description="Run light mesh repairs"),
-    decimate: float = Query(0.0, ge=0.0, le=0.99, description="Fraction to reduce faces (0.25 = reduce 25%)"),
+    decimate: float = Query(
+        0.0, ge=0.0, le=0.99, description="Fraction to reduce faces (0.25 = reduce 25%)"
+    ),
 ):
     data = await file.read()
     if len(data) > settings.MAX_BYTES:
-        return JSONResponse({"error": f"File too large (> {settings.MAX_BYTES} bytes)."}, status_code=400)
+        return JSONResponse(
+            {"error": f"File too large (> {settings.MAX_BYTES} bytes)."},
+            status_code=400,
+        )
 
     if detect_draco_from_bytes(data):
-        return JSONResponse({"error": "GLB uses Draco; this endpoint requires uncompressed GLB."}, status_code=400)
+        return JSONResponse(
+            {"error": "GLB uses Draco; this endpoint requires uncompressed GLB."},
+            status_code=400,
+        )
 
     try:
         mesh = load_glb_to_mesh(data)
@@ -78,15 +104,22 @@ async def convert_to_stl(
         buf.seek(0)
         out_name = file.filename.rsplit(".", 1)[0] + ".stl"
 
-        log.info("converted_to_stl",
-                 extra={"triangles_before": face_count_before,
-                        "triangles_after": int(mesh.faces.shape[0]),
-                        "z_up": z_up, "to_mm": to_mm, "repair": repair, "decimate": decimate})
+        log.info(
+            "converted_to_stl",
+            extra={
+                "triangles_before": face_count_before,
+                "triangles_after": int(mesh.faces.shape[0]),
+                "z_up": z_up,
+                "to_mm": to_mm,
+                "repair": repair,
+                "decimate": decimate,
+            },
+        )
 
         return StreamingResponse(
             buf,
             media_type="model/stl",
-            headers={"Content-Disposition": f'attachment; filename="{out_name}"'}
+            headers={"Content-Disposition": f'attachment; filename="{out_name}"'},
         )
     except DracoDetected as e:
         return JSONResponse({"error": str(e)}, status_code=400)

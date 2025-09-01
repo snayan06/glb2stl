@@ -1,14 +1,20 @@
 from __future__ import annotations
-import io, json, struct
+
+import io
+import json
+import struct
+
 import numpy as np
 import trimesh
 
 DRACO_EXT = "KHR_draco_mesh_compression"
-GLB_MAGIC = 0x46546C67      # b"glTF"
-CHUNK_JSON = 0x4E4F534A     # b"JSON"
+GLB_MAGIC = 0x46546C67  # b"glTF"
+CHUNK_JSON = 0x4E4F534A  # b"JSON"
+
 
 class DracoDetected(Exception):
     """Raised when Draco is present (non-Draco path only)."""
+
 
 def _extract_glb_json_bytes(data: bytes) -> bytes:
     if len(data) < 12:
@@ -22,11 +28,12 @@ def _extract_glb_json_bytes(data: bytes) -> bytes:
         offset += 8
         if offset + chunk_len > len(data):
             raise ValueError("Corrupted GLB (chunk overruns file)")
-        chunk_bytes = data[offset:offset + chunk_len]
+        chunk_bytes = data[offset : offset + chunk_len]
         offset += chunk_len
         if chunk_type == CHUNK_JSON:
             return chunk_bytes
     raise ValueError("GLB JSON chunk not found")
+
 
 def detect_draco_from_bytes(data: bytes) -> bool:
     try:
@@ -40,20 +47,24 @@ def detect_draco_from_bytes(data: bytes) -> bool:
         return True
     if DRACO_EXT in (doc.get("extensionsRequired") or []):
         return True
-    for mesh in (doc.get("meshes") or []):
-        for prim in (mesh.get("primitives") or []):
+    for mesh in doc.get("meshes") or []:
+        for prim in mesh.get("primitives") or []:
             if DRACO_EXT in (prim.get("extensions") or {}):
                 return True
     return False
 
+
 def load_glb_to_mesh(glb_bytes: bytes) -> trimesh.Trimesh:
     if detect_draco_from_bytes(glb_bytes):
-        raise DracoDetected("GLB uses Draco (KHR_draco_mesh_compression). Provide uncompressed GLB.")
+        raise DracoDetected(
+            "GLB uses Draco (KHR_draco_mesh_compression). Provide uncompressed GLB."
+        )
     scene_or_mesh = trimesh.load(io.BytesIO(glb_bytes), file_type="glb")
     mesh = scene_or_mesh.to_mesh() if isinstance(scene_or_mesh, trimesh.Scene) else scene_or_mesh
     if not isinstance(mesh, trimesh.Trimesh):
         raise ValueError("Input did not resolve to a triangle mesh.")
     return mesh
+
 
 def orient_and_scale(mesh: trimesh.Trimesh, z_up: bool, to_mm: bool) -> None:
     if z_up:
@@ -61,6 +72,7 @@ def orient_and_scale(mesh: trimesh.Trimesh, z_up: bool, to_mm: bool) -> None:
         mesh.apply_transform(R)
     if to_mm:
         mesh.apply_scale(1000.0)
+
 
 def quick_repair(mesh: trimesh.Trimesh) -> None:
     mesh.remove_unreferenced_vertices()

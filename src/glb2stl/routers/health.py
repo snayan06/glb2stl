@@ -1,11 +1,14 @@
 from fastapi import APIRouter
+
 from ..versioning import get_version
 
 router = APIRouter(prefix="/health", tags=["health"])
 
+
 @router.get("/liveness")
 def liveness():
     return {"status": "alive"}
+
 
 @router.get("/readiness")
 def readiness():
